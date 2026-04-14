@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Birthday Lookout - Cinematic Final</title>
+    <title>Birthday Lookout - Frontal Sunset</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
-        /* This vignette makes it feel like a high-quality camera lens */
+        body { margin: 0; overflow: hidden; background: linear-gradient(to bottom, #1a1a2e 0%, #ff7e5f 100%); }
+        #hiddenCanvas { display: none; }
+        /* High-quality video vignette */
         body::after {
             content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: radial-gradient(circle, transparent 40%, rgba(0,0,0,0.9) 100%);
+            background: radial-gradient(circle, transparent 20%, rgba(20, 10, 0, 0.7) 100%);
             pointer-events: none;
         }
-        #hiddenCanvas { display: none; }
     </style>
 </head>
 <body>
@@ -21,153 +21,140 @@
 
     <script>
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x000000, 0.01);
+        scene.fog = new THREE.FogExp2(0xff7e5f, 0.006); // Sunset haze
 
-        const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 1000);
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(renderer.domElement);
 
-        // --- BETTER LIGHTING FOR REALISM ---
-        const moon = new THREE.DirectionalLight(0x5566ff, 1.2); // Stronger blue moonlight
-        moon.position.set(-50, 100, 50);
-        scene.add(moon);
-        scene.add(new THREE.AmbientLight(0x111122, 0.3));
+        // --- SUNSET LIGHTING ---
+        const sun = new THREE.DirectionalLight(0xffccaa, 1.8);
+        sun.position.set(0, 20, 100); // Light hitting the cliff face directly
+        scene.add(sun);
+        scene.add(new THREE.AmbientLight(0x332244, 0.5));
 
-        // --- THE JAGGED CLIFF (Visible this time) ---
-        const cliffGeo = new THREE.BoxGeometry(80, 120, 50, 50, 50, 50);
+        // --- THE CLIFF (FACING US) ---
+        const cliffGeo = new THREE.BoxGeometry(150, 100, 80, 40, 40, 40);
         const pos = cliffGeo.attributes.position;
         for (let i = 0; i < pos.count; i++) {
-            let x = pos.getX(i);
-            if (x > 20) {
-                pos.setX(i, x + (Math.random() - 0.5) * 8);
+            let z = pos.getZ(i);
+            if (z > 35) { // Deform the side facing the camera
+                pos.setZ(i, z + (Math.random() - 0.5) * 15);
                 pos.setY(i, pos.getY(i) + (Math.random() - 0.5) * 5);
             }
         }
         cliffGeo.computeVertexNormals();
-        // MeshStandardMaterial reacts to light much better than the old one
-        const cliff = new THREE.Mesh(cliffGeo, new THREE.MeshStandardMaterial({ color: 0x15151b, roughness: 0.8 }));
-        cliff.position.set(-45, -55, 0);
+        const cliff = new THREE.Mesh(cliffGeo, new THREE.MeshStandardMaterial({ color: 0x1a1512, roughness: 0.9 }));
+        cliff.position.set(0, -50, -40); // Pushed back so the edge is center-screen
         scene.add(cliff);
 
-        // --- TRUCK & ROCKET ---
+        // --- THE TRUCK (DRIVING TOWARDS US) ---
         const truck = new THREE.Group();
-        const tBody = new THREE.Mesh(new THREE.BoxGeometry(5, 2.2, 2.8), new THREE.MeshStandardMaterial({color: 0x050505}));
+        const tBody = new THREE.Mesh(new THREE.BoxGeometry(3, 2, 5), new THREE.MeshStandardMaterial({color: 0x050505}));
         truck.add(tBody);
-        truck.position.set(-90, 5.8, 0);
+        truck.position.set(0, 1, -80); // Starts deep in the background
         scene.add(truck);
 
         const rocket = new THREE.Mesh(
-            new THREE.SphereGeometry(0.3, 8, 8),
+            new THREE.SphereGeometry(0.5, 12, 12),
             new THREE.MeshBasicMaterial({ color: 0xffffff })
         );
         rocket.visible = false;
         scene.add(rocket);
 
-        camera.position.set(50, 25, 80);
+        // Camera positioned to look at the cliff edge
+        camera.position.set(0, 15, 60);
         camera.lookAt(0, 10, 0);
 
-        // --- PARTICLE SYSTEM (THE GLOW UP) ---
-        const textToForm = "HAPPY BIRTHDAY";
-        let particles = [];
-        
-        // Use a PointCloud/Points for a more "spark" look than heavy spheres
-        const pMaterial = new THREE.PointsMaterial({
-            size: 0.6,
-            vertexColors: true,
-            transparent: true,
-            opacity: 0.8,
-            blending: THREE.AdditiveBlending // THIS CREATES THE GLOW EFFECT
-        });
-
-        function getPoints() {
-            const cvs = document.getElementById('hiddenCanvas');
-            const ctx = cvs.getContext('2d');
+        // --- PARTICLE LOGIC ---
+        const textPoints = [];
+        function initText() {
+            const canvas = document.getElementById('hiddenCanvas');
+            const ctx = canvas.getContext('2d');
             ctx.fillStyle = "white";
-            ctx.font = "bold 60px Arial";
-            ctx.fillText(textToForm, 50, 120);
-            const data = ctx.getImageData(0,0,800,200).data;
-            const pts = [];
-            for(let y=0; y<200; y+=4) {
-                for(let x=0; x<800; x+=4) {
-                    if(data[((y*800)+x)*4+3] > 128) {
-                        pts.push({
-                            target: new THREE.Vector3((x-400)/8 + 30, (100-y)/8 + 30, (Math.random()-0.5)*10),
-                            color: new THREE.Color().setHSL(Math.random() * 0.1 + 0.05, 1, 0.6)
+            ctx.font = "bold 70px Arial";
+            ctx.fillText("HAPPY BIRTHDAY", 20, 100);
+            
+            const imgData = ctx.getImageData(0, 0, 800, 200).data;
+            for (let y = 0; y < 200; y += 4) {
+                for (let x = 0; x < 800; x += 4) {
+                    if (imgData[((y * 800) + x) * 4 + 3] > 128) {
+                        textPoints.push({
+                            x: (x - 400) / 7,
+                            y: (100 - y) / 7 + 35
                         });
                     }
                 }
             }
-            return pts;
         }
+        initText();
 
-        const targetData = getPoints();
-        const pGeo = new THREE.BufferGeometry();
-        const pPositions = new Float32Array(targetData.length * 3);
-        const pColors = new Float32Array(targetData.length * 3);
-        const pVelocities = [];
+        const geo = new THREE.BufferGeometry();
+        const posArr = new Float32Array(textPoints.length * 3);
+        const vels = [];
+        for(let i=0; i<textPoints.length; i++) {
+            posArr[i*3] = 0; posArr[i*3+1] = 1; posArr[i*3+2] = -40;
+            vels.push(new THREE.Vector3());
+        }
+        
+        geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+        const sparks = new THREE.Points(geo, new THREE.PointsMaterial({ 
+            color: 0xffcc33, 
+            size: 1.0, 
+            transparent: true,
+            blending: THREE.AdditiveBlending 
+        }));
+        sparks.visible = false;
+        scene.add(sparks);
 
-        targetData.forEach((pt, i) => {
-            pPositions[i*3] = -90; pPositions[i*3+1] = 5.8; pPositions[i*3+2] = 0;
-            pColors[i*3] = pt.color.r; pColors[i*3+1] = pt.color.g; pColors[i*3+2] = pt.color.b;
-            pVelocities.push(new THREE.Vector3());
-        });
-
-        pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
-        pGeo.setAttribute('color', new THREE.BufferAttribute(pColors, 3));
-        const pointCloud = new THREE.Points(pGeo, pMaterial);
-        pointCloud.visible = false;
-        scene.add(pointCloud);
-
-        // --- ANIMATION LOGIC ---
+        // --- ANIMATION ---
         let state = "driving";
-        let rocketVel = new THREE.Vector3(1, 1.8, 0);
-        let startTime = 0;
+        let rVel = new THREE.Vector3(0, 2.2, 0.8); // Shoots UP and slightly TOWARDS camera
+        let boomTime = 0;
 
         function animate() {
             requestAnimationFrame(animate);
-            const posAttr = pGeo.attributes.position;
+            const positions = geo.attributes.position;
 
             if (state === "driving") {
-                truck.position.x += 0.4;
-                if (truck.position.x >= -5) {
+                truck.position.z += 0.45; // Moves towards camera
+                if (truck.position.z >= -2) { // Stop right at the cliff edge
                     state = "launching";
                     rocket.position.copy(truck.position);
                     rocket.visible = true;
                 }
             } else if (state === "launching") {
-                rocket.position.add(rocketVel);
-                rocketVel.y -= 0.02;
-                if (rocketVel.y <= 0) {
+                rocket.position.add(rVel);
+                rVel.y -= 0.03; // Gravity
+                if (rVel.y <= 0) {
                     state = "exploding";
                     rocket.visible = false;
-                    pointCloud.visible = true;
-                    startTime = Date.now();
-                    // Initial blast
-                    for(let i=0; i<targetData.length; i++) {
-                        pVelocities[i].set((Math.random()-0.5)*3, (Math.random()-0.5)*3, (Math.random()-0.5)*3);
-                        posAttr.setXYZ(i, rocket.position.x, rocket.position.y, rocket.position.z);
+                    sparks.visible = true;
+                    boomTime = Date.now();
+                    for(let i=0; i<textPoints.length; i++) {
+                        positions.setXYZ(i, rocket.position.x, rocket.position.y, rocket.position.z);
+                        vels[i].set((Math.random()-0.5)*6, (Math.random()-0.5)*6, (Math.random()-0.5)*6);
                     }
                 }
             } else if (state === "exploding") {
-                const elapsed = Date.now() - startTime;
-                for(let i=0; i<targetData.length; i++) {
-                    let curX = posAttr.getX(i), curY = posAttr.getY(i), curZ = posAttr.getZ(i);
+                const elapsed = Date.now() - boomTime;
+                for(let i=0; i<textPoints.length; i++) {
+                    let px = positions.getX(i), py = positions.getY(i), pz = positions.getZ(i);
                     
-                    if (elapsed < 1500) { // Phase 1: Falling and exploding
-                        curX += pVelocities[i].x; curY += pVelocities[i].y; curZ += pVelocities[i].z;
-                        pVelocities[i].y -= 0.015; // Gravity
-                        pVelocities[i].multiplyScalar(0.97); // Air resistance
-                    } else { // Phase 2: Seeking letters
-                        const target = targetData[i].target;
-                        curX += (target.x - curX) * 0.04;
-                        curY += (target.y - curY) * 0.04;
-                        curZ += (target.z - curZ) * 0.04;
+                    if (elapsed < 2000) {
+                        px += vels[i].x; py += vels[i].y; pz += vels[i].z;
+                        vels[i].y -= 0.02;
+                        vels[i].multiplyScalar(0.98);
+                    } else {
+                        const target = textPoints[i];
+                        px += (target.x - px) * 0.07;
+                        py += (target.y - py) * 0.07;
+                        pz += (5 - pz) * 0.07; // Move letters close to camera view
                     }
-                    posAttr.setXYZ(i, curX, curY, curZ);
+                    positions.setXYZ(i, px, py, pz);
                 }
-                posAttr.needsUpdate = true;
+                positions.needsUpdate = true;
             }
 
             renderer.render(scene, camera);
