@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Birthday Lookout - Cinematic Final</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        /* This vignette makes it feel like a high-quality camera lens */
+        body::after {
+            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 40%, rgba(0,0,0,0.9) 100%);
+            pointer-events: none;
+        }
+        #hiddenCanvas { display: none; }
+    </style>
+</head>
+<body>
+    <canvas id="hiddenCanvas" width="800" height="200"></canvas>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000000, 0.01);
+
+        const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // --- BETTER LIGHTING FOR REALISM ---
+        const moon = new THREE.DirectionalLight(0x5566ff, 1.2); // Stronger blue moonlight
+        moon.position.set(-50, 100, 50);
+        scene.add(moon);
+        scene.add(new THREE.AmbientLight(0x111122, 0.3));
+
+        // --- THE JAGGED CLIFF (Visible this time) ---
+        const cliffGeo = new THREE.BoxGeometry(80, 120, 50, 50, 50, 50);
+        const pos = cliffGeo.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+            let x = pos.getX(i);
+            if (x > 20) {
+                pos.setX(i, x + (Math.random() - 0.5) * 8);
+                pos.setY(i, pos.getY(i) + (Math.random() - 0.5) * 5);
+            }
+        }
+        cliffGeo.computeVertexNormals();
+        // MeshStandardMaterial reacts to light much better than the old one
+        const cliff = new THREE.Mesh(cliffGeo, new THREE.MeshStandardMaterial({ color: 0x15151b, roughness: 0.8 }));
+        cliff.position.set(-45, -55, 0);
+        scene.add(cliff);
+
+        // --- TRUCK & ROCKET ---
+        const truck = new THREE.Group();
+        const tBody = new THREE.Mesh(new THREE.BoxGeometry(5, 2.2, 2.8), new THREE.MeshStandardMaterial({color: 0x050505}));
+        truck.add(tBody);
+        truck.position.set(-90, 5.8, 0);
+        scene.add(truck);
+
+        const rocket = new THREE.Mesh(
+            new THREE.SphereGeometry(0.3, 8, 8),
+            new THREE.MeshBasicMaterial({ color: 0xffffff })
+        );
+        rocket.visible = false;
+        scene.add(rocket);
+
+        camera.position.set(50, 25, 80);
+        camera.lookAt(0, 10, 0);
+
+        // --- PARTICLE SYSTEM (THE GLOW UP) ---
+        const textToForm = "HAPPY BIRTHDAY";
+        let particles = [];
+        
+        // Use a PointCloud/Points for a more "spark" look than heavy spheres
+        const pMaterial = new THREE.PointsMaterial({
+            size: 0.6,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending // THIS CREATES THE GLOW EFFECT
+        });
+
+        function getPoints() {
+            const cvs = document.getElementById('hiddenCanvas');
+            const ctx = cvs.getContext('2d');
+            ctx.fillStyle = "white";
+            ctx.font = "bold 60px Arial";
+            ctx.fillText(textToForm, 50, 120);
+            const data = ctx.getImageData(0,0,800,200).data;
+            const pts = [];
+            for(let y=0; y<200; y+=4) {
+                for(let x=0; x<800; x+=4) {
+                    if(data[((y*800)+x)*4+3] > 128) {
+                        pts.push({
+                            target: new THREE.Vector3((x-400)/8 + 30, (100-y)/8 + 30, (Math.random()-0.5)*10),
+                            color: new THREE.Color().setHSL(Math.random() * 0.1 + 0.05, 1, 0.6)
+                        });
+                    }
+                }
+            }
+            return pts;
+        }
+
+        const targetData = getPoints();
+        const pGeo = new THREE.BufferGeometry();
+        const pPositions = new Float32Array(targetData.length * 3);
+        const pColors = new Float32Array(targetData.length * 3);
+        const pVelocities = [];
+
+        targetData.forEach((pt, i) => {
+            pPositions[i*3] = -90; pPositions[i*3+1] = 5.8; pPositions[i*3+2] = 0;
+            pColors[i*3] = pt.color.r; pColors[i*3+1] = pt.color.g; pColors[i*3+2] = pt.color.b;
+            pVelocities.push(new THREE.Vector3());
+        });
+
+        pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+        pGeo.setAttribute('color', new THREE.BufferAttribute(pColors, 3));
+        const pointCloud = new THREE.Points(pGeo, pMaterial);
+        pointCloud.visible = false;
+        scene.add(pointCloud);
+
+        // --- ANIMATION LOGIC ---
+        let state = "driving";
+        let rocketVel = new THREE.Vector3(1, 1.8, 0);
+        let startTime = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const posAttr = pGeo.attributes.position;
+
+            if (state === "driving") {
+                truck.position.x += 0.4;
+                if (truck.position.x >= -5) {
+                    state = "launching";
+                    rocket.position.copy(truck.position);
+                    rocket.visible = true;
+                }
+            } else if (state === "launching") {
+                rocket.position.add(rocketVel);
+                rocketVel.y -= 0.02;
+                if (rocketVel.y <= 0) {
+                    state = "exploding";
+                    rocket.visible = false;
+                    pointCloud.visible = true;
+                    startTime = Date.now();
+                    // Initial blast
+                    for(let i=0; i<targetData.length; i++) {
+                        pVelocities[i].set((Math.random()-0.5)*3, (Math.random()-0.5)*3, (Math.random()-0.5)*3);
+                        posAttr.setXYZ(i, rocket.position.x, rocket.position.y, rocket.position.z);
+                    }
+                }
+            } else if (state === "exploding") {
+                const elapsed = Date.now() - startTime;
+                for(let i=0; i<targetData.length; i++) {
+                    let curX = posAttr.getX(i), curY = posAttr.getY(i), curZ = posAttr.getZ(i);
+                    
+                    if (elapsed < 1500) { // Phase 1: Falling and exploding
+                        curX += pVelocities[i].x; curY += pVelocities[i].y; curZ += pVelocities[i].z;
+                        pVelocities[i].y -= 0.015; // Gravity
+                        pVelocities[i].multiplyScalar(0.97); // Air resistance
+                    } else { // Phase 2: Seeking letters
+                        const target = targetData[i].target;
+                        curX += (target.x - curX) * 0.04;
+                        curY += (target.y - curY) * 0.04;
+                        curZ += (target.z - curZ) * 0.04;
+                    }
+                    posAttr.setXYZ(i, curX, curY, curZ);
+                }
+                posAttr.needsUpdate = true;
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
